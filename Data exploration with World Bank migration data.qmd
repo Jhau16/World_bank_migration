@@ -1,0 +1,338 @@
+---
+title: "Data exploration with World Bank Migration dataset"
+author: "Jens Hau"
+date: "7/4/2022"
+output:
+  html_document:
+    df_print: "paged"
+    number_sections: no
+    theme: flatly
+    highlight: kate
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r, echo=FALSE, include=FALSE}
+#Packages used
+
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(janitor)
+library(ggthemes)
+library(plotly)
+library(htmlwidgets)
+library(hrbrthemes) 
+```
+
+# Loading the data set
+
+The data was pulled from the World Bank data bank from the global bilateral\
+migration data set which can be accessed [here](https://databank.worldbank.org/source/global-bilateral-migration).
+
+```{r}
+WB_Data_relevant_columns <- read_excel("C:/Users/PC/Desktop/R Working directory/WB Data, relevant columns.xlsx")
+
+wb_data <- WB_Data_relevant_columns
+
+head(wb_data)
+```
+
+The data as it is pulled from the data bank comes in a wide format. To aggregate the migration data for each country, the data is wrangled into a tidy format.
+
+# Making data into tidy format
+
+```{r warning=FALSE}
+wb_tidy <- wb_data %>% gather(year, migrants, c('1960', '1970', '1980', '1990', '2000')) %>%
+  mutate_at(c("migrants", "year"), as.integer) %>% drop_na()
+
+head(wb_tidy)
+```
+
+The new data set has 255.380 rows and six columns with each row representing a bilateral emigrant stock. The drop_na() function removed 12.580 NA entries. These mostly comprised small countries and territories like Isle of Man and Sao Tome or countries that didn't exist in the 1960s like Serbia. 
+
+The next step is to sum all the bilateral emigrant stock values for each country in order to get the total emigrant population for each country. 
+
+To do this, a for-loop is used to capture each country name in country of origin for each decade and the sum for each conutry. The capture.output() function is used to capture the output of the for-loop but turns the calculated sums into a character vector with a space attached. The cat() function is used to remove this and belowe the summed values can be turned into an interger. 
+
+```{r warning=FALSE}
+total1960 <- capture.output(for (x in unique(wb_tidy$CountryOrigin)) {
+  wb_tidy %>% filter(year == 1960 & CountryOrigin %in% x) %>% 
+    pull(migrants) %>% sum(na.rm = TRUE) %>% cat("\n")
+})
+
+#Turning the output into a list of numbers: 
+
+total21960 <- as.integer(total1960)
+
+#repeating for each decade
+
+total1970 <- capture.output(for (x in unique(wb_tidy$CountryOrigin)) {
+  wb_tidy %>% filter(year == 1970 & CountryOrigin %in% x) %>% 
+    pull(migrants) %>% sum(na.rm = TRUE) %>% cat("\n")
+})
+
+total21970 <- as.integer(total1970) 
+
+
+total1980 <- capture.output(for (x in unique(wb_tidy$CountryOrigin)) {
+  wb_tidy %>% filter(year == 1980 & CountryOrigin %in% x) %>% 
+    pull(migrants) %>% sum(na.rm = TRUE) %>% cat("\n")
+})
+
+total21980 <- as.integer(total1980)
+
+
+total1990 <- capture.output(for (x in unique(wb_tidy$CountryOrigin)) {
+  wb_tidy %>% filter(year == 1990 & CountryOrigin %in% x) %>% 
+    pull(migrants) %>% sum(na.rm = TRUE) %>% cat("\n")
+})
+
+total21990 <- as.integer(total1990)
+
+
+total2000 <- capture.output(for (x in unique(wb_tidy$CountryOrigin)) {
+  wb_tidy %>% filter(year == 2000 & CountryOrigin %in% x) %>% 
+    pull(migrants) %>% sum(na.rm = TRUE) %>% cat("\n")
+})
+
+total22000 <- as.integer(total2000)
+
+#Creating a new tibble with total migration numbers
+
+Countryname <- unique(wb_tidy$CountryOrigin)
+Totalmigration <- as_tibble(Countryname)
+
+#adding total emigrants for each decade
+
+Totalmigration$'1960' <- total21960
+Totalmigration$'1970' <- total21970
+Totalmigration$'1980' <- total21980
+Totalmigration$'1990' <- total21990
+Totalmigration$'2000' <- total22000
+
+
+#NB: this is a wide data format. use gather to create a tidy format which then can be added
+# GPP/Cap etc
+head(Totalmigration)
+summary(Totalmigration)
+```
+
+The newly summed data with total emigrant stocks is turned into a tidy format again so the data on GDP and population can be added to the data. The new data set has 1.130 rows and three columns. ½
+
+```{r warning=FALSE}
+Totalmigration_tidy <- Totalmigration %>% gather(year, migrants, c('1960', '1970', '1980', '1990', '2000')) %>%
+  mutate_at(c("migrants", "year"), as.integer) %>% drop_na()
+
+# correcting column name
+Totalmigration_tidy <- rename(Totalmigration_tidy, country = value)
+
+head(Totalmigration_tidy)
+```
+
+## Importing data from Penn World Tables
+
+The data used for GDP and population size is Penn World Table version 10.0 and can be accessed [here](https://www.rug.nl/ggdc/productivity/pwt/?lang=en).
+
+The data is chosen from Penn World Tables instead of the World Bank because there are fewer missing values. While more values for population and GPP are available, it comes at the cost of risking issues connected to comparability between the migration data and the population data. After having completed the graphs for the data, it is similar to the graphs made by Clemens and therefore looks to be justified comparison. 
+
+the variable rgdpe is Expenditure-side real GDP at chained PPPs (in mil. 2017US$).
+
+The data is moreover sorted to exclude countries with populations lower than 1.000.000 as these countries often exhibit very large migration to population ratios due to the small populations and they are therefore not as representative of the more general pattern. Moreover, a high migrant to population ratio from countries with small populations also present next no political dilemmas.
+
+This results in N=91 for 1960, N=111 for 1970, N=116 for 1980, N=141 for 1990 and N=145 for 2000.
+
+```{r warning=FALSE}
+Penn_World_Tables_2022 <- read_excel("C:/Users/PC/Desktop/R Working directory/Penn World Tables 2022.xlsx")
+
+Penn <- select(Penn_World_Tables_2022, country, year, pop, rgdpe)
+
+
+#The Penn population data is in millions, so it is multiplied by 1.000.000 
+#in order for to be matched with the migration data. 
+Penn <- Penn %>% mutate(pop = pop*1000000)
+
+#The data is sorted to only include countries with a population exceeding 
+#one million, as countries with very small populations have an unrepresentative
+#migration to population ratio.
+Penn <- subset(Penn, pop > 1000000)
+
+#adding GDP per capita
+Penn <- Penn %>% mutate(gdpcap = (rgdpe*1e+06)/pop)
+
+penn_sixty <- subset(Penn, year == 1960) %>% na.omit
+
+penn_seventy <- subset(Penn, year == 1970) %>% na.omit
+
+penn_eighty <- subset(Penn, year == 1980) %>% na.omit
+
+penn_ninety <- subset(Penn, year == 1990) %>% na.omit
+
+penn_twok <- subset(Penn, year == 2000) %>% na.omit
+```
+
+
+## Joining the two data sets
+
+The data on GDP and population size from Penn World Tables is joined with the data on emigrant stocks for each decade
+
+```{r warning=FALSE}
+
+# Data set for 1960
+Totalmigration_tidy_sixty <- subset(Totalmigration_tidy, year==1960)
+
+Tomig_sixty <- left_join(Totalmigration_tidy_sixty, penn_sixty, by = "country") %>% na.omit
+
+Tomig_sixty$year.y <- NULL
+
+Tomig_sixty <- Tomig_sixty %>% rename("year" = "year.x")
+
+Tomig_sixty <- Tomig_sixty %>% mutate(migpop=migrants/pop)
+
+# Data set for 1970
+Totalmigration_tidy_seventy <- subset(Totalmigration_tidy, year==1970)
+
+#penn_seventy <- penn_seventy %>% rename("country"="Country")
+
+Tomig_seventy <- left_join(Totalmigration_tidy_seventy, penn_seventy, by = "country") %>% na.omit
+
+Tomig_seventy$year.y <- NULL
+
+Tomig_seventy <- Tomig_seventy %>% rename("year" = "year.x")
+
+Tomig_seventy <- Tomig_seventy %>% mutate(migpop=migrants/pop)
+
+# Data set for 1980
+Totalmigration_tidy_eighty <- subset(Totalmigration_tidy, year==1980)
+
+#penn_eighty <- penn_eighty %>% rename("Country"="country")
+
+Tomig_eighty <- left_join(Totalmigration_tidy_eighty, penn_eighty, by = "country") %>% na.omit
+
+Tomig_eighty$year.y <- NULL
+
+Tomig_eighty <- Tomig_eighty %>% rename("year" = "year.x")
+
+Tomig_eighty <- Tomig_eighty %>% mutate(migpop=migrants/pop)
+
+
+## data for 1990
+
+Totalmigration_tidy_ninety <- subset(Totalmigration_tidy, year==1990)
+
+Tomig_ninety <- left_join(Totalmigration_tidy_ninety, penn_ninety, by = "country") %>% na.omit
+
+Tomig_ninety$year.y <- NULL
+
+Tomig_ninety <- Tomig_ninety %>% rename("year" = "year.x")
+
+Tomig_ninety <- Tomig_ninety %>% mutate(migpop=migrants/pop)
+
+
+## data for 2000
+
+Totalmigration_tidy_twok <- subset(Totalmigration_tidy, year==2000)
+
+Tomig_twok <- left_join(Totalmigration_tidy_twok, penn_twok, by = "country") %>% na.omit
+
+Tomig_twok$year.y <- NULL
+
+Tomig_twok <- Tomig_twok %>% rename("year" = "year.x")
+
+Tomig_twok <- Tomig_twok %>% mutate(migpop=migrants/pop)
+```
+
+
+### Loading continents
+
+To examine regional differences in emigration rates, the regional definitions for each country as defined by the UN Statistical Division is added to the data set. The country and region list can be accessed [here](https://unstats.un.org/unsd/methodology/m49/).
+
+```{r, echo = FALSE, warning=FALSE}
+
+library(stringr)
+
+region <- read_xlsx("C:/Users/PC/Desktop/R Working directory/Continent_list2.xlsx")
+
+subregion <- region %>% select(country, subregion, region)
+
+subregion <- subregion %>% mutate(country = str_trim(country))
+
+subregion$country[80] <- "France"
+
+subregion$country[234] <- "United Kingdom"
+ 
+subregion$country[237] <- "United States"
+
+subregion$country[151] <- "Myanmar"
+
+subregion$country[61] <- "Czech Republic"
+
+Tomig_sixty_reg <- Tomig_sixty %>% left_join(subregion, by = "country") 
+
+#omig_sixty_reg <- Tomig_sixty_reg$rgdpe %>% round_half_up()
+
+#view(Tomig_sixty_reg)
+
+# 1) Think about maybe using round_half_up() with the janitor package for GDP/cap
+# 2) it would be nice to have a set of code that sought out the problem rows for 
+#    for countries - something like giving a list of rows with NA
+
+### For 1970
+
+Tomig_seventy_reg <- Tomig_seventy %>% left_join(subregion, by = "country")
+
+#view(Tomig_seventy_reg)
+
+### For 1980
+
+Tomig_eighty_reg <- Tomig_eighty %>% left_join(subregion, by = "country")
+
+#view(Tomig_eighty_reg)
+
+### For 1990
+
+Tomig_ninety_reg <- Tomig_ninety %>% left_join(subregion, by = "country")
+
+#view(Tomig_ninety_reg)
+
+### For 2000
+
+Tomig_twok_reg <- Tomig_twok %>% left_join(subregion, by = "country")
+
+#view(Tomig_twok_reg)
+
+#view(subregion)
+
+```
+
+### Completing the data set
+After having created the data for each decade with the correct calculations and labels for regions and subregions, the data is then re-combined to a final single data set
+
+```{r warning=FALSE}
+Totalemigrantstock <- bind_rows(Tomig_sixty_reg, Tomig_seventy_reg, Tomig_seventy_reg, Tomig_eighty_reg, Tomig_ninety_reg, Tomig_twok_reg)
+
+Totalemigrantstock$region <- Totalemigrantstock$region %>% as.factor()
+
+
+ggplot(Totalemigrantstock, aes(x = gdpcap, y = migpop, color = as.factor(year))) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.7, level = 0.5) +
+  scale_x_continuous(trans = "log", breaks = c(0, 500, 5000, 50000)) +
+  ylim(0,0.1) +
+  #geom_point(alpha = 0.2) +
+  labs(
+    x = "\nGDP/capita (2017 PPP US$), log-scale",
+    y = "Migrant/population\n",
+    title = "Emigrant stocks in cross-section",
+    color = "Year") +
+  theme_minimal()
+```
+
+The final result yields a similar graphs as made by Clemens (2014) in the article "Does Development Reduce Migration?". 
+
+
